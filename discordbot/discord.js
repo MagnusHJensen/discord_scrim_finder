@@ -1,4 +1,4 @@
-const creds = require("../creds");
+const creds = require("../creds/creds");
 const { Pool, Client} = require('pg')
 const Discord = require('discord.js')
 const client = new Discord.Client()
@@ -25,16 +25,16 @@ client.on('ready', () => {
 
     // Listing all servers, the bot is connected to.
     console.log("Servers:")
-    client.guilds.forEach((guild) => {
+    client.guilds.cache.forEach(guild => {
         console.log(" - " + guild.name + `(${guild.id})`)
-        guild.roles.forEach((role) => {
+        guild.roles.cache.forEach((role) => {
             if (role.name === "Queued") {
                 queueRole = role.id
             }
         })
 
         // Listing all individual channels on the server, with type and their id.
-        guild.channels.forEach((channel) => {
+        guild.channels.cache.forEach((channel) => {
             console.log(` -- ${channel.name} (${channel.type}) - ${channel.id}`)
         })
     })
@@ -125,8 +125,8 @@ function multiplyCommand (arguments, receivedMessage, help) {
 function devCommand(arguments, receivedMessage) {
     let guildUser = receivedMessage.member
 
-    if (guildUser.roles.some(role => role.name === "Developer")) {
-        console.log("A !dev command was just executed!!")
+    if (guildUser.roles.cache.some(role => role.name === "Developer")) {
+        console.log("A !dev command was just executed!")
     } else {
         receivedMessage.channel.send(receivedMessage.member.user.username + " is not allowed to use the `!dev` command.")
         return
@@ -140,7 +140,6 @@ function databaseCommand(arguments, receivedMessage) {
             dbclient
                 .query('SELECT * FROM accounts')
                 .then((res) => {
-                    console.log(res)
                     const data = res.rows;
                     if (arguments[0] == "show") {
                         data.forEach((row) => {
@@ -214,7 +213,7 @@ function queueCommand (arguments, receivedMessage) {
         receivedMessage.channel.send("I don't seem to know, what you want to do with the `!queue` command!")
 
     } else if (arguments[0] == "join") { // If "!queue join" is issued
-        let alreadyQueued = receivedMessage.member.roles.some(role => role.name === "Queued")
+        let alreadyQueued = receivedMessage.member.roles.cache.some(role => role.name === "Queued")
         if (alreadyQueued) { // Check if the user is already queued
             console.log("User is already queued!")
         } else {
@@ -224,7 +223,7 @@ function queueCommand (arguments, receivedMessage) {
         }
 
     } else if (arguments[0] == "leave") { // If "!queue leave" is issued
-        let alreadyQueued = receivedMessage.member.roles.some(role => role.name === "Queued")
+        let alreadyQueued = receivedMessage.member.roles.cache.some(role => role.name === "Queued")
         if (!alreadyQueued) { // Check if the user is already queued
             console.log("User is not currently in queue!")
 
@@ -240,8 +239,8 @@ function queueCommand (arguments, receivedMessage) {
 async function queueHandler (client){
     let discordClient = client
     let queue = true
-    let currentGuild = client.guilds.get("681873204628684828")
-    let generalChannel = currentGuild.channels.get("681873204628684831")
+    let currentGuild = client.guilds.cache.get("681873204628684828")
+    let generalChannel = currentGuild.channels.cache.get("681873204628684831")
     const dbclient = await pool.connect()
     while (queue) {
         await dbclient.query("select * from queue")
@@ -251,7 +250,7 @@ async function queueHandler (client){
                     playersInQueue.rows.slice(0,QUEUELENGTH).forEach((player) => {
                         //TODO FIX THIS!!
                         console.log(player.user_id)
-                        let currentPlayer = currentGuild.members.get(`${player.user_id}`)
+                        let currentPlayer = currentGuild.members.cache.get(`${player.user_id}`)
                         currentPlayer.removeRole(queueRole)
                         dbclient.query("update accounts set queued = false where id = " + currentPlayer.id)
                             .then(() => {

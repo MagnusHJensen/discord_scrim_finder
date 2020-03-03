@@ -1,0 +1,19 @@
+{
+  "name": "discordbot",
+  "version": "1.0.0",
+  "description": "Discordbot to scrim find",
+  "main": "discord.js",
+  "scripts": {
+    "start": "node discord",
+    "dev": "nodemon discord"
+  },
+  "author": "Magnus Jensen",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^12.0.1",
+    "pg": "^7.18.2"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.2"
+  }
+}
