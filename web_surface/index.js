@@ -1,7 +1,7 @@
 const express = require('express')
 const app = express();
 const { Pool, Client} = require('pg')
-const creds = require("../creds");
+const creds = require("../creds/creds");
 
 const pool = new Pool({
     user: creds.user,
