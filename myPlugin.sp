@@ -76,7 +76,7 @@ void GetIp(char[] buffer)
 
 
 // Send Server Data. IP and Port with Serverid to Backend.
-Action SendServerCheckIn(Handle timer){
+void ServerCreation(){
     char json[2048];
     char serverip[32];
     GetIp(serverip);
@@ -87,7 +87,7 @@ Action SendServerCheckIn(Handle timer){
 
     // Static Link - TODO Make URL Dynamic
     char url[512];
-    url = "http://192.168.1.50:8000/api/server/send/data";
+    url = "http://192.168.1.50:8000/api/server/create";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
@@ -95,7 +95,28 @@ Action SendServerCheckIn(Handle timer){
 
     SteamWorks_SetHTTPCallbacks(httpRequest, EmptyHttpCallback);
     SteamWorks_SendHTTPRequest(httpRequest);
-    return Plugin_Continue;
+}
+
+void MatchEnd()
+{
+    char json[2048];
+    char serverip[32];
+    GetIp(serverip);
+    Stats serverstats = new Stats(serverip);
+    serverstats.Encode(json, sizeof(json));
+
+    GetCommandLineParam("-serverid", g_sServerId, 32);
+
+    // Static Link - TODO Make URL Dynamic
+    char url[512];
+    url = "http://192.168.1.50:8000/api/server/match/end";
+    Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
+
+    SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "serverid", g_sServerId);
+
+    SteamWorks_SetHTTPCallbacks(httpRequest, EmptyHttpCallback);
+    SteamWorks_SendHTTPRequest(httpRequest);
 }
 
 void EmptyHttpCallback(Handle httpRequest, bool failure, bool requestSuccessful, EHTTPStatusCode statusCode, any data) {
@@ -166,9 +187,17 @@ public void OnPluginStart()
     HookEvent("round_end", Event_roundEnd);
     // Defining global cvar
     AutoExecConfig(true, "myPlugin"); // Name of file/plugin.
-
-
     // Timer to send serverCheckIn repeatly.
-    CreateTimer(5.0, SendServerCheckIn, _, TIMER_REPEAT);
+    //CreateTimer(5.0, ServerCreation, _, TIMER_REPEAT);
+}
+
+public void OnMapStart()
+{
+    ServerCreation();
+}
+
+public void OnMapEnd()
+{
+    MatchEnd();
 }
 

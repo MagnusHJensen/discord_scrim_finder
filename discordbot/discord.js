@@ -3,7 +3,7 @@ const { Pool, Client} = require('pg')
 const Discord = require('discord.js')
 const client = new Discord.Client()
 
-const QUEUELENGTH = 2
+const QUEUELENGTH = 2;
 
 let queueRole;
 
@@ -14,6 +14,7 @@ const pool = new Pool({
     password: creds.password,
     port: creds.port
 })
+
 
 
 client.on('ready', () => {
@@ -30,6 +31,7 @@ client.on('ready', () => {
         guild.roles.cache.forEach((role) => {
             if (role.name === "Queued") {
                 queueRole = role.id
+                console.log("Found queue role: " + queueRole);
             }
         })
 
@@ -208,72 +210,152 @@ function databaseCommand(arguments, receivedMessage) {
 
 // Handles all the queue.
 function queueCommand (arguments, receivedMessage) {
-
+    let alreadyQueued;
     if (arguments.length < 1) {
         receivedMessage.channel.send("I don't seem to know, what you want to do with the `!queue` command!")
 
     } else if (arguments[0] == "join") { // If "!queue join" is issued
-        let alreadyQueued = receivedMessage.member.roles.cache.some(role => role.name === "Queued")
-        if (alreadyQueued) { // Check if the user is already queued
-            console.log("User is already queued!")
-        } else {
-            console.log(`${receivedMessage.member.user.username} has joined the queue!`)
-            receivedMessage.member.addRole(queueRole)
-            databaseCommand(["updateQueueStatus", "joined"], receivedMessage)
+        try {
+            alreadyQueued = receivedMessage.member.roles.cache.has(`${queueRole}`)
+            if (alreadyQueued) { // Check if the user is already queued
+                console.log("User is already queued!")
+            } else {
+                console.log(`${receivedMessage.member.user.username} has joined the queue!`)
+                receivedMessage.member.roles.add(queueRole)
+                databaseCommand(["updateQueueStatus", "joined"], receivedMessage)
+            }
+        } catch (TypeError) {
+            console.log("Role does not exist.")
         }
+        
+        
 
     } else if (arguments[0] == "leave") { // If "!queue leave" is issued
-        let alreadyQueued = receivedMessage.member.roles.cache.some(role => role.name === "Queued")
-        if (!alreadyQueued) { // Check if the user is already queued
-            console.log("User is not currently in queue!")
-
-        } else {
-            console.log(`${receivedMessage.member.user.username} has left the queue!`)
-            receivedMessage.member.removeRole(queueRole)
-            databaseCommand(["updateQueueStatus", "left"], receivedMessage)
+        try {
+            alreadyQueued = receivedMessage.member.roles.cache.has(`${queueRole}`)
+            if (!alreadyQueued) { // Check if the user is already queued
+                console.log("User is not currently in queue!")
+    
+            } else {
+                console.log(`${receivedMessage.member.user.username} has left the queue!`)
+                receivedMessage.member.roles.remove(queueRole)
+                databaseCommand(["updateQueueStatus", "left"], receivedMessage)
+            }
+        } catch (TypeError) {
+            console.log("Role does not exist.")
         }
+        
     }
 }
 
 
-async function queueHandler (client){
-    let discordClient = client
-    let queue = true
-    let currentGuild = client.guilds.cache.get("681873204628684828")
-    let generalChannel = currentGuild.channels.cache.get("681873204628684831")
+
+
+
+
+async function queueHandler (client, playersInQueue, serverid, ip, port, matchid){
+    
+    var playersInQueue;
+    
     const dbclient = await pool.connect()
-    while (queue) {
-        await dbclient.query("select * from queue")
-            .then((playersInQueue, index) => {
+    setInterval(() => {
+        dbclient
+            .query("select * from queue")
+            .then((playerInQueue) => {
+                playersInQueue = playerInQueue
                 if (playersInQueue.rows.length >= QUEUELENGTH) {
-                    let matchId = 0
-                    playersInQueue.rows.slice(0,QUEUELENGTH).forEach((player) => {
-                        //TODO FIX THIS!!
-                        console.log(player.user_id)
-                        let currentPlayer = currentGuild.members.cache.get(`${player.user_id}`)
-                        currentPlayer.removeRole(queueRole)
-                        dbclient.query("update accounts set queued = false where id = " + currentPlayer.id)
-                            .then(() => {
-                                console.log("Queue status set to false")
-                            })
-                            .catch(e => {
-                                console.log(e)
-                            })
-                        dbclient.query("delete from queue where user_id = " + currentPlayer.id)
-                            .then(() => {
-                                console.log("Succesfully removed player from queue.")
-                            })
-                            .catch(e => {
-                                console.log(e)
-                            })
-                    })
-                    generalChannel.send("Match has been created!\n Match ID: " + matchId)
+                    matchCreater(playersInQueue, dbclient);
                 }
             })
             .catch(e => {
                 console.log(e)
-            })
+            })                
+    }, 5000);
+    
+}
+
+async function matchCreater(playersInQueue, dbclient){
+    var serverid;
+    var ip;
+    var port;
+    var matchid;
+    
+            
+    await dbclient
+        .query("select * from servers limit 1")
+        .then((server) => {
+            const serverData = server.rows
+            serverid = serverData[0].server_id;
+            ip = serverData[0].ip;
+            port = serverData[0].port;
+            console.log(ip);
+            console.log(port);
+        })
+        .catch(e => console.error(e)) 
+
+                
+    await dbclient
+        .query(`insert into matches (server_id) values ('${serverid}')`)
+        .then(() => {
+            console.log("Match has been inserted.")
+        })
+        .catch(e => console.error(e)) 
+        
+
+    await dbclient
+        .query("select * from matches where server_id = '" + serverid + "' limit 1")
+        .then((match) => {
+            const matchData = match.rows
+            matchid = matchData[0].match_id
+            //matchid = matchData[0].match_id;
+            console.log("Selected match: " + matchid)
+        })
+        .then((matchid) => {
+            return matchid;
+        })
+        .catch(e => console.error(e))
+        
+
+    playerInQueueHandler(playersInQueue, ip, port, matchid, dbclient);  
+            
     }
+
+async function playerInQueueHandler(playersInQueue, ip, port, matchid, dbclient){
+    let currentGuild = client.guilds.cache.get("681873204628684828")
+    let generalChannel = currentGuild.channels.cache.get("681873204628684831")
+    playersInQueue.rows.slice(0,QUEUELENGTH).forEach((player) => {
+        //TODO FIX THIS!!
+        console.log(player.user_id)
+        let currentPlayer = currentGuild.members.cache.get(`${player.user_id}`)
+        currentPlayer.roles.remove(queueRole)
+        dbclient.query("update accounts set queued = false where id = " + currentPlayer.id)
+            .then(() => {
+                console.log("Queue status set to false")
+            })
+            .catch(e => {
+                console.log(e)
+            })
+        dbclient.query("delete from queue where user_id = " + currentPlayer.id)
+            .then(() => {
+                console.log("Succesfully removed player from queue.")
+            })
+            .catch(e => {
+                console.log(e)
+            })
+
+        
+        dbclient
+            .query(`insert into playersinmatch (user_id, match_id) values ('${currentPlayer.id}', '${matchid}')`)
+            .then(() => {
+                console.log("Player inserted into match table.");
+            })
+            .catch(e => console.error(e))
+            currentPlayer.send(`This is the server ip: ${ip}:${port}`);
+        
+    })
+
+    generalChannel.send("Match has been created!\n Match ID: " + matchid);
+    console.log(`matchid: ${matchid} - ip: ${ip} - port: ${port}`)
 }
 
 function serverHandler() {
