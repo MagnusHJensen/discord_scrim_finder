@@ -2,6 +2,7 @@ const express = require('express')
 const app = express();
 const { Pool, Client} = require('pg')
 const creds = require("../creds/creds");
+const serverHandler = require("./serverHandler.js");
 
 const pool = new Pool({
     user: creds.user,
@@ -9,7 +10,7 @@ const pool = new Pool({
     database: creds.db,
     password: creds.password,
     port: creds.port
-})
+});
 
 // Body Parser
 app.use(express.json());
@@ -44,8 +45,8 @@ app.get("/api/accounts", (req, res) => {
 
 app.post("/api/server/send/data", (req, res) => {
     const serverid = req.header('serverid');
-    console.log(req.body)
-    res.send(req.body)
+    console.log(req.body);
+    res.send(req.body);
 })
 
 app.post("/api/server/create", (req, res) => {
@@ -77,6 +78,12 @@ app.post("/api/server/create", (req, res) => {
     })
     .catch(e => console.error(e))
 });
+
+app.post("/api/server/match/end", (req, res) => {
+    const serverid = req.header("serverid");
+    serverHandler.matchEnd(serverid);
+    res.send(req.body);
+})
 
 app.listen(8000, ()=>{
     console.log("Example app listening on port 8000");
