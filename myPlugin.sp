@@ -11,18 +11,21 @@
 char g_sIp[32];
 int g_iPort;
 char g_sServerId[32];
+bool g_bAlive;
+int g_iTIndex = 2;
+int g_iCTIndex = 3;
 
 public Plugin myinfo =
 {
-    name = "My first plugin",
+    name = "Discord Scrim Finder",
     author = "Magnus Jensen",
-    description = "My first csgo plugin",
-    version = "0.1",
+    description = "Discord Scrim finder csgo plugin, to communicate with servers, and send stats afterwards.",
+    version = "0.2",
     url = "http://www.sourcemod.net"
 };
 
 // JSON Object for HTTP Request
-methodmap Stats < JSON_Object
+methodmap ServerStats < JSON_Object
 {
     public bool SetName(const char[] value)
     {
@@ -53,13 +56,59 @@ methodmap Stats < JSON_Object
         }
     }
 
-    public Stats(const char[] ip)
+    public ServerStats(const char[] ip)
     {
-        Stats self = view_as<Stats>(new JSON_Object());
+        ServerStats self = view_as<ServerStats>(new JSON_Object());
         self.port = g_iPort;
         self.SetIp(ip);
         
         return self;
+    }
+}
+
+methodmap PlayerStats < JSON_Object
+{
+    public bool SetName(const char[] value)
+    {
+        return this.SetString("name", value);
+    }
+
+    public bool GetName(char[] buffer, int max_size)
+    {
+        return this.GetString("name", buffer, max_size);
+    }
+
+    property int frags
+    {
+        public get() { return this.GetInt("frags"); }
+        public set(int value) { this.SetInt("frags", value); }
+    }
+
+    public PlayerStats(const char[] name, int frags)
+    {
+        PlayerStats self = view_as<PlayerStats>(new JSON_Object());
+        self.SetName(name);
+        self.frags = frags;
+        return self;
+    }
+}
+
+methodmap MatchStats < JSON_Object {
+    property int ctscore {
+        public get() { return this.GetInt("ct_score"); }
+        public set(int value) { this.SetInt("ct_score", value); }
+    }
+
+    property int tscore {
+        public get() { return this.GetInt("t_score"); }
+        public set(int value) { this.SetInt("t_score", value); }
+    }
+
+    public MatchStats(int value1, int value2) {
+        MatchStats stats = view_as<MatchStats>(new JSON_Object());
+        stats.ctscore = value1;
+        stats.tscore = value2;
+        return stats;
     }
 }
 
@@ -73,14 +122,13 @@ void GetIp(char[] buffer)
     g_iPort = GetConVarInt(FindConVar("hostport"));
     
 }
-
-
 // Send Server Data. IP and Port with Serverid to Backend.
-void ServerCreation(){
+void ServerCreation()
+{
     char json[2048];
     char serverip[32];
     GetIp(serverip);
-    Stats serverstats = new Stats(serverip);
+    ServerStats serverstats = new ServerStats(serverip);
     serverstats.Encode(json, sizeof(json));
 
     GetCommandLineParam("-serverid", g_sServerId, 32);
@@ -99,17 +147,56 @@ void ServerCreation(){
 
 void MatchEnd()
 {
-    char json[2048];
-    char serverip[32];
-    GetIp(serverip);
-    Stats serverstats = new Stats(serverip);
-    serverstats.Encode(json, sizeof(json));
-
     GetCommandLineParam("-serverid", g_sServerId, 32);
 
     // Static Link - TODO Make URL Dynamic
     char url[512];
     url = "http://192.168.1.50:8000/api/server/match/end";
+    Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
+
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "serverid", g_sServerId);
+
+    SteamWorks_SetHTTPCallbacks(httpRequest, EmptyHttpCallback);
+    SteamWorks_SendHTTPRequest(httpRequest);
+}
+
+Action serverHeartbeat(Handle timer) {
+    /* char json[2048];
+    PlayerStats playerstats = new PlayerStats();
+    playerstats.Encode(json, sizeof(json)); */
+    g_bAlive = IsServerProcessing();
+    char status[16];
+    if (g_bAlive)
+    {
+        status = "alive";
+    } 
+    else 
+    {
+        status = "dead";
+    } 
+
+    PrintToServer(status);
+
+    GetCommandLineParam("-serverid", g_sServerId, 32);
+
+    // Static Link - TODO Make URL Dynamic
+    char url[512];
+    url = "http://192.168.1.50:8000/api/server/match/heartbeat";
+    Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
+    //SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
+
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "serverid", g_sServerId);
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "status", status);
+    SteamWorks_SetHTTPCallbacks(httpRequest, EmptyHttpCallback);
+    SteamWorks_SendHTTPRequest(httpRequest);
+
+    return Plugin_Continue;
+}
+
+void sendHttpRequest(char[] json)
+{
+    char url[512];
+    url = "http://192.168.1.50:8000/api/server/create";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
@@ -123,56 +210,54 @@ void EmptyHttpCallback(Handle httpRequest, bool failure, bool requestSuccessful,
     CloseHandle(httpRequest);
 }
 
-public Action get_teams(int client, int args){
-    int teams = GetTeamCount();
-    ShowActivity2(client, "[SM] ", "Amount of teams: %d", teams);
-    return Plugin_Handled;
-}
-
-// Team index 2 is T
-// Team index 3 is CT
-public Action get_team_name(int client, int args){
-    char arg1[32];
-	GetCmdArg(1, arg1, sizeof(arg1));
-	int index = StringToInt(arg1);
-	char name[32];
-	GetTeamName(index, name, sizeof(name));
-	ShowActivity2(client, "[SM] ", "Team %d name: %s", index, name);
-	return Plugin_Handled;
-}
-
-public Action get_team_score(int client, int args) 
-{
-	char arg1[32];
-	GetCmdArg(1, arg1, sizeof(arg1));
-	int index = StringToInt(arg1);
-	int score = GetTeamScore(index);
-	ReplyToCommand(client, "The score is: %d", score);
-	return Plugin_Handled;
-}
-
-
-// Test Hooks - Use as example.
-public void Event_bombDrop(Event event, const char[] name, bool dontBroacast)
-{
-    int user = event.GetInt("userid");
-    char name[64];
-    
-    int dropper = GetClientOfUserId(user);
-    GetClientName(dropper, name, sizeof(name));
-    PrintToConsole(dropper, "User: %s dropped the bomb!", name);
-
-}
-
-// TODO Send data to webserver. (SteamWorks HTTP)
 public void Event_roundEnd(Event event, const char[] name, bool dontBroadcast)
 {
-    int winner = event.GetInt("winner");
-    char team_name[32], message[128];
-    GetTeamName(winner, team_name, sizeof(team_name));
-    event.GetString("message", message, sizeof(message));
-    int count = event.GetInt("player_count");   
-    PrintToServer("Round winner: %s - Players Alive: %d - Message: %s", team_name, count, message);
+    for (int i = 1; i < 10; i++)
+    {
+        UpdatePlayerStats(i);
+    }
+    
+
+
+    char json[2048];
+    int t_score, ct_score;
+    t_score = GetTeamScore(g_iTIndex);
+    ct_score = GetTeamScore(g_iCTIndex);
+
+
+    MatchStats matchstat = new MatchStats(ct_score, t_score);
+    matchstat.Encode(json, sizeof(json));
+
+
+    char url[512];
+    url = "http://192.168.1.50:8000/api/match/round/end";
+    Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
+
+    SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "serverid", g_sServerId);
+
+    SteamWorks_SetHTTPCallbacks(httpRequest, EmptyHttpCallback);
+    SteamWorks_SendHTTPRequest(httpRequest);
+}
+
+void UpdatePlayerStats(int client) {
+
+    char name[32];
+    GetClientName(client, name, sizeof(name));
+    int frags = GetClientFrags(client);
+    char json[2048];
+    PlayerStats player = new PlayerStats(name, frags);
+    player.Encode(json, sizeof(json));
+
+    char url[512];
+    url = "http://192.168.1.50:8000/api/match/player/update";
+    Handle httpRequestPlayer = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
+
+    SteamWorks_SetHTTPRequestRawPostBody(httpRequestPlayer, "application/json; charset=utf-8", json, strlen(json));
+    SteamWorks_SetHTTPRequestHeaderValue(httpRequestPlayer, "serverid", g_sServerId);
+
+    SteamWorks_SetHTTPCallbacks(httpRequestPlayer, EmptyHttpCallback);
+    SteamWorks_SendHTTPRequest(httpRequestPlayer);
 }
 
 
@@ -180,10 +265,6 @@ public void Event_roundEnd(Event event, const char[] name, bool dontBroadcast)
 public void OnPluginStart()
 {
     GetIp(g_sIp);
-    LoadTranslations("common.phrases.txt"); // Required for find target Fail reply.
-    RegAdminCmd("sm_get_teams", get_teams, ADMFLAG_GENERIC);
-    RegAdminCmd("sm_get_team_name", get_team_name, ADMFLAG_GENERIC);
-    HookEvent("bomb_dropped", Event_bombDrop);
     HookEvent("round_end", Event_roundEnd);
     // Defining global cvar
     AutoExecConfig(true, "myPlugin"); // Name of file/plugin.
@@ -194,7 +275,10 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     ServerCreation();
+    CreateTimer(150.0, serverHeartbeat, _, TIMER_REPEAT);
 }
+
+
 
 public void OnMapEnd()
 {
