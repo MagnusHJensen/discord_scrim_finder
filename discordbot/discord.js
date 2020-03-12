@@ -1,11 +1,14 @@
 const creds = require("../creds/creds");
-const { Pool, Client} = require('pg')
-const Discord = require('discord.js')
-const client = new Discord.Client()
+const { Pool, Client} = require('pg');
+const Discord = require('discord.js');
+const client = new Discord.Client();
+const request = require('request')
 
-const QUEUELENGTH = 2;
+const QUEUELENGTH = 1;
+const GUILDID = "681873204628684828";
+const GENERALCHANNEL = "681873204628684831";
+let QUEUEROLE;
 
-let queueRole;
 
 const pool = new Pool({
     user: creds.user,
@@ -18,9 +21,6 @@ const pool = new Pool({
 
 
 client.on('ready', () => {
-
-
-
     // Connection Status
     console.log("Connected as " + client.user.tag+"\n")
 
@@ -34,10 +34,11 @@ client.on('ready', () => {
                 console.log("Found queue role: " + queueRole);
             }
         })
-
+        
         // Listing all individual channels on the server, with type and their id.
         guild.channels.cache.forEach((channel) => {
             console.log(` -- ${channel.name} (${channel.type}) - ${channel.id}`)
+            
         })
     })
 
@@ -45,9 +46,6 @@ client.on('ready', () => {
     client.user.setActivity("with Javascript", {type: "PLAYING"})
 
     queueHandler(client)
-
-
-
 
     // Delcaring generalChannel, and sending a message
     /*var generalChannel = client.channels.get("681952244492795944")
@@ -66,7 +64,7 @@ client.on('guildMemberAdd', (newMember) => {
 })
 
 // Bot respond on every message
-client.on('message', (receivedMessage) => {
+client.on('message', async (receivedMessage) => {
     if (receivedMessage.author == client.user) {
         return
     }
@@ -210,6 +208,26 @@ function databaseCommand(arguments, receivedMessage) {
 
 // Handles all the queue.
 function queueCommand (arguments, receivedMessage) {
+
+    //Example of creating post request to backend.
+    /*request.post(
+        'http://192.168.1.50:8000/api/match/create', // API endpoint
+        {
+            // Json Data.
+            json: {
+                todo: "buy more milk" 
+            }
+        },
+        (error, res, body) => {
+            if (error) { // Check for error in request
+                console.error(error);
+                return
+            }
+            // Do something with the response.
+        }
+    )*/
+
+    
     let alreadyQueued;
     if (arguments.length < 1) {
         receivedMessage.channel.send("I don't seem to know, what you want to do with the `!queue` command!")
@@ -303,7 +321,7 @@ async function matchCreater(playersInQueue, dbclient){
         
 
     await dbclient
-        .query("select * from matches where server_id = '" + serverid + "' limit 1")
+        .query("select * from matches where server_id = '" + serverid + "' ORDER BY match_id DESC limit 1")
         .then((match) => {
             const matchData = match.rows
             matchid = matchData[0].match_id
