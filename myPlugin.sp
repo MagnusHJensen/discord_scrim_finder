@@ -14,6 +14,7 @@ char g_sServerId[32];
 bool g_bAlive;
 int g_iTIndex = 2;
 int g_iCTIndex = 3;
+g_DamageDone[MAXPLAYERS+1][MAXPLAYERS+1];
 
 public Plugin myinfo =
 {
@@ -78,17 +79,66 @@ methodmap PlayerStats < JSON_Object
         return this.GetString("name", buffer, max_size);
     }
 
+    public bool SetSteamId(const char[] value)
+    {
+        return this.SetString("steam_id", value);
+    }
+    
+    public bool GetSteamId(char[] buffer, int max_size)
+    {
+        return this.GetString("steam_id", buffer, max_size);
+    }
+
     property int frags
     {
         public get() { return this.GetInt("frags"); }
         public set(int value) { this.SetInt("frags", value); }
     }
 
-    public PlayerStats(const char[] name, int frags)
+    property int deaths
+    {
+        public get() { return this.GetInt("deaths"); }
+        public set(int value) { this.SetInt("deaths", value); }
+    }
+
+    property int assists
+    {
+        public get() { return this.GetInt("assists"); }
+        public set(int value) { this.SetInt("assists", value); }
+    }
+
+    property int roundsWon
+    {
+        public get() { return this.GetInt("roundsWon"); }
+        public set(int value) { this.SetInt("roundsWon", value); }
+    }
+
+    property int rounds
+    {
+        public get() { return this.GetInt("rounds"); }
+        public set(int value) { this.SetInt("rounds", value); }
+    }
+
+    property bool matchWin
+    {
+        public get() { return this.GetBool("matchWin"); }
+        public set(bool value) { this.SetInt("matchWin", value); }
+    }
+
+    property bool matchDraw
+    {
+        public get() { return this.GetBool("matchDraw"); }
+        public set(bool value) { this.SetInt("matchDraw", value); }
+    }
+
+    public PlayerStats(const char[] name, const char[] steam_id, int frags, int deaths, int assists)
     {
         PlayerStats self = view_as<PlayerStats>(new JSON_Object());
         self.SetName(name);
+        self.SetSteamId(steam_id);
         self.frags = frags;
+        self.deaths = deaths;
+        self.assists = assists;
         return self;
     }
 }
@@ -102,6 +152,12 @@ methodmap MatchStats < JSON_Object {
     property int tscore {
         public get() { return this.GetInt("t_score"); }
         public set(int value) { this.SetInt("t_score", value); }
+    }
+
+    property bool matchEnd
+    {
+        public get() { return this.GetInt("matchEnd"); }
+        public set(bool value) { this.SetInt("matchEnd", value); }
     }
 
     public MatchStats(int value1, int value2) {
@@ -135,7 +191,7 @@ void ServerCreation()
 
     // Static Link - TODO Make URL Dynamic
     char url[512];
-    url = "http://192.168.1.50:8000/api/server/create";
+    url = "https://scrim.magnusjensen.dk/api/server/create";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
@@ -145,13 +201,13 @@ void ServerCreation()
     SteamWorks_SendHTTPRequest(httpRequest);
 }
 
-void MatchEnd()
+public void Event_MatchEnd(Event event, const char[] name, bool dontBroadcast)
 {
     GetCommandLineParam("-serverid", g_sServerId, 32);
 
     // Static Link - TODO Make URL Dynamic
     char url[512];
-    url = "http://192.168.1.50:8000/api/server/match/end";
+    url = "https://scrim.magnusjensen.dk/api/server/match/end";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestHeaderValue(httpRequest, "serverid", g_sServerId);
@@ -181,7 +237,7 @@ Action serverHeartbeat(Handle timer) {
 
     // Static Link - TODO Make URL Dynamic
     char url[512];
-    url = "http://192.168.1.50:8000/api/server/match/heartbeat";
+    url = "https://scrim.magnusjensen.dk/api/server/match/heartbeat";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
     //SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
 
@@ -196,7 +252,7 @@ Action serverHeartbeat(Handle timer) {
 void sendHttpRequest(char[] json)
 {
     char url[512];
-    url = "http://192.168.1.50:8000/api/server/create";
+    url = "https://scrim.magnusjensen.dk/api/server/create";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
@@ -212,17 +268,19 @@ void EmptyHttpCallback(Handle httpRequest, bool failure, bool requestSuccessful,
 
 public void Event_roundEnd(Event event, const char[] name, bool dontBroadcast)
 {
-    for (int i = 1; i < 10; i++)
-    {
-        UpdatePlayerStats(i);
-    }
+    
     
 
 
     char json[2048];
-    int t_score, ct_score;
+    int t_score, ct_score, totalRounds;
     t_score = GetTeamScore(g_iTIndex);
     ct_score = GetTeamScore(g_iCTIndex);
+
+    for (int i = 1; i <= 10; i++)
+    {
+        UpdatePlayerStats(i, t_score, ct_score);
+    }
 
 
     MatchStats matchstat = new MatchStats(ct_score, t_score);
@@ -230,7 +288,7 @@ public void Event_roundEnd(Event event, const char[] name, bool dontBroadcast)
 
 
     char url[512];
-    url = "http://192.168.1.50:8000/api/match/round/end";
+    url = "https://scrim.magnusjensen.dk/api/match/round/end";
     Handle httpRequest = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequest, "application/json; charset=utf-8", json, strlen(json));
@@ -240,17 +298,49 @@ public void Event_roundEnd(Event event, const char[] name, bool dontBroadcast)
     SteamWorks_SendHTTPRequest(httpRequest);
 }
 
-void UpdatePlayerStats(int client) {
+void UpdatePlayerStats(int client, int t_score, int ct_score) {
+    
+    
+    char name[32], steam_id[64], json[2048];
+    int frags, deaths, assists;
 
-    char name[32];
+    GetClientAuthId(client, AuthId_Steam2, steam_id, sizeof(steam_id), true);
     GetClientName(client, name, sizeof(name));
-    int frags = GetClientFrags(client);
-    char json[2048];
-    PlayerStats player = new PlayerStats(name, frags);
-    player.Encode(json, sizeof(json));
+    frags = GetClientFrags(client);
+    deaths = GetClientDeaths(client);
+    assists = CS_GetClientAssists(client);
+    PlayerStats player = new PlayerStats(name, steam_id, frags, deaths, assists);
+    
 
+    int totalRounds = t_score + ct_score;
+
+    if (totalRounds == 6)
+    {
+        int teamIndex, clientRoundsWon;
+        teamIndex = GetClientTeam(client);
+        clientRoundsWon = GetTeamScore(teamIndex);
+        player.roundsWon = clientRoundsWon;
+        player.rounds = totalRounds;
+        player.matchDraw = true;
+    } else if (t_score == 4 || ct_score == 4)
+    {
+        int teamIndex, clientRoundsWon;
+        teamIndex = GetClientTeam(client);
+        clientRoundsWon = GetTeamScore(teamIndex);
+        player.roundsWon = clientRoundsWon;
+        player.rounds = totalRounds;
+        if (clientRoundsWon == 4)
+        {
+            player.matchWin = true; 
+        } else {
+            player.matchWin = false;
+        }
+    }
+
+
+    player.Encode(json, sizeof(json));
     char url[512];
-    url = "http://192.168.1.50:8000/api/match/player/update";
+    url = "https://scrim.magnusjensen.dk/api/player/stats/update";
     Handle httpRequestPlayer = SteamWorks_CreateHTTPRequest(k_EHTTPMethodPOST, url);
 
     SteamWorks_SetHTTPRequestRawPostBody(httpRequestPlayer, "application/json; charset=utf-8", json, strlen(json));
@@ -266,22 +356,22 @@ public void OnPluginStart()
 {
     GetIp(g_sIp);
     HookEvent("round_end", Event_roundEnd);
+    HookEvent("cs_win_panel_match", Event_MatchEnd);
     // Defining global cvar
     AutoExecConfig(true, "myPlugin"); // Name of file/plugin.
-    // Timer to send serverCheckIn repeatly.
-    //CreateTimer(5.0, ServerCreation, _, TIMER_REPEAT);
+    ServerCreation();
 }
 
 public void OnMapStart()
 {
-    ServerCreation();
+    
     CreateTimer(150.0, serverHeartbeat, _, TIMER_REPEAT);
 }
 
-
-
-public void OnMapEnd()
+public void OnClientAuthorized(int client, const char[] auth)
 {
-    MatchEnd();
+    PrintToServer("Index: %d - SteamID: %s", client, auth);
 }
+
+
 

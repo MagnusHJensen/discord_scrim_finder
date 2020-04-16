@@ -1,3 +1,5 @@
 creds.js
 node_modules
 .vscode
+amazonvirtual*
+*.smx
